@@ -1,7 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'providers/app_provider.dart';
+import 'models/category.dart';
+import 'models/meal.dart';
+import 'services/api_service.dart';
+import 'screens/category_meals_screen.dart';
 
 void main() {
-  runApp(MealApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => AppProvider(),
+      child: MealApp(),
+    ),
+  );
 }
 
 class MealApp extends StatelessWidget {
@@ -120,7 +132,21 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 // Categories Page
-class CategoriesScreen extends StatelessWidget {
+class CategoriesScreen extends StatefulWidget {
+  @override
+  _CategoriesScreenState createState() => _CategoriesScreenState();
+}
+
+class _CategoriesScreenState extends State<CategoriesScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Fetch categories when screen loads
+    Future.microtask(
+      () => context.read<AppProvider>().fetchCategories(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -196,6 +222,7 @@ class CategoriesScreen extends StatelessWidget {
                   SizedBox(height: 25),
                   // Minimal Search Bar with Filter
                   Container(
+                    height: 50,
                     padding: EdgeInsets.symmetric(horizontal: 20),
                     decoration: BoxDecoration(
                       color: Colors.grey[100],
@@ -203,13 +230,16 @@ class CategoriesScreen extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
+                        Icon(Icons.search, color: Colors.grey[400]),
+                        SizedBox(width: 10),
                         Expanded(
-                          child: TextField(
+                          child: TextFormField(
                             decoration: InputDecoration(
                               border: InputBorder.none,
                               hintText: 'Search recipes...',
                               hintStyle: TextStyle(color: Colors.grey[400]),
-                              icon: Icon(Icons.search, color: Colors.grey[400]),
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
                             ),
                           ),
                         ),
@@ -241,26 +271,50 @@ class CategoriesScreen extends StatelessWidget {
                 ],
               ),
             ),
-            // Categories Grid
+            // Categories Grid with loading and error handling
             Expanded(
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 25),
-                child: GridView.builder(
-                  physics: BouncingScrollPhysics(),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    childAspectRatio: 1,
-                    crossAxisSpacing: 15,
-                    mainAxisSpacing: 15,
-                  ),
-                  itemCount: DUMMY_CATEGORIES.length,
-                  itemBuilder: (ctx, index) => CategoryItem(
-                    id: DUMMY_CATEGORIES[index].id,
-                    title: DUMMY_CATEGORIES[index].title,
-                    color: DUMMY_CATEGORIES[index].color,
-                    imageUrl: DUMMY_CATEGORIES[index].imageUrl,
-                  ),
-                ),
+              child: Consumer<AppProvider>(
+                builder: (context, provider, child) {
+                  if (provider.isLoading) {
+                    return Center(child: CircularProgressIndicator());
+                  }
+
+                  if (provider.error.isNotEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error_outline,
+                              size: 48, color: Colors.red),
+                          SizedBox(height: 16),
+                          Text(provider.error),
+                          ElevatedButton(
+                            onPressed: () => provider.fetchCategories(),
+                            child: Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 25),
+                    child: GridView.builder(
+                      physics: BouncingScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        childAspectRatio: 1,
+                        crossAxisSpacing: 15,
+                        mainAxisSpacing: 15,
+                      ),
+                      itemCount: provider.categories.length,
+                      itemBuilder: (ctx, index) {
+                        final category = provider.categories[index];
+                        return CategoryItem(category: category);
+                      },
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -272,23 +326,14 @@ class CategoriesScreen extends StatelessWidget {
 
 // Category Item Widget
 class CategoryItem extends StatelessWidget {
-  final String id;
-  final String title;
-  final Color color;
-  final String imageUrl;
+  final Category category;
 
-  CategoryItem({
-    required this.id,
-    required this.title,
-    required this.color,
-    required this.imageUrl,
-  });
+  CategoryItem({required this.category});
 
   void selectCategory(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) =>
-            CategoryMealsScreen(categoryId: id, categoryTitle: title),
+        builder: (_) => CategoryMealsScreen(category: category),
       ),
     );
   }
@@ -302,7 +347,7 @@ class CategoryItem extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.2),
+              color: category.color.withOpacity(0.2),
               blurRadius: 15,
               offset: Offset(0, 5),
             ),
@@ -313,22 +358,40 @@ class CategoryItem extends StatelessWidget {
             // Background Image
             ClipRRect(
               borderRadius: BorderRadius.circular(20),
-              child: Image.network(
-                imageUrl,
+              child: CachedNetworkImage(
+                imageUrl: category.imageUrl,
                 height: double.infinity,
                 width: double.infinity,
                 fit: BoxFit.cover,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Container(
-                    color: color.withOpacity(0.3),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                      ),
+                placeholder: (context, url) => Container(
+                  color: category.color.withOpacity(0.3),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
                     ),
-                  );
-                },
+                  ),
+                ),
+                errorWidget: (context, url, error) => Container(
+                  color: category.color.withOpacity(0.3),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        getIconForCategory(category.title),
+                        color: Colors.white,
+                        size: 40,
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        category.title,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
             // Gradient Overlay
@@ -340,7 +403,7 @@ class CategoryItem extends StatelessWidget {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    color.withOpacity(0.8),
+                    category.color.withOpacity(0.8),
                   ],
                 ),
               ),
@@ -353,7 +416,7 @@ class CategoryItem extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Text(
-                    title,
+                    category.title,
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 20,
@@ -364,13 +427,13 @@ class CategoryItem extends StatelessWidget {
                   Row(
                     children: [
                       Icon(
-                        getIconForCategory(title),
+                        getIconForCategory(category.title),
                         color: Colors.white70,
                         size: 16,
                       ),
                       SizedBox(width: 5),
                       Text(
-                        '${getRecipeCount(id)} Recipes',
+                        '${getRecipeCount(category.id)} Recipes',
                         style: TextStyle(
                           color: Colors.white70,
                           fontSize: 14,
@@ -404,24 +467,35 @@ class CategoryItem extends StatelessWidget {
     }
   }
 
-  int getRecipeCount(String categoryId) {
-    return DUMMY_MEALS.where((meal) => meal['categoryId'] == categoryId).length;
+  int getRecipeCount(int categoryId) {
+    return 0; // This will be updated when we implement the meals count
   }
 }
 
 // Category Meals Screen
-class CategoryMealsScreen extends StatelessWidget {
-  final String categoryId;
-  final String categoryTitle;
+class CategoryMealsScreen extends StatefulWidget {
+  final Category category;
 
-  CategoryMealsScreen({required this.categoryId, required this.categoryTitle});
+  CategoryMealsScreen({required this.category});
+
+  @override
+  _CategoryMealsScreenState createState() => _CategoryMealsScreenState();
+}
+
+class _CategoryMealsScreenState extends State<CategoryMealsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Fetch meals when screen loads
+    Future.microtask(
+      () => context
+          .read<AppProvider>()
+          .fetchMealsByCategory(widget.category.id.toString()),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final meals = DUMMY_MEALS.where((meal) {
-      return meal['categoryId'] == categoryId;
-    }).toList();
-
     return Scaffold(
       backgroundColor: Colors.grey[100],
       body: SafeArea(
@@ -431,7 +505,7 @@ class CategoryMealsScreen extends StatelessWidget {
             Container(
               padding: EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.pink,
+                color: widget.category.color,
                 borderRadius: BorderRadius.only(
                   bottomLeft: Radius.circular(30),
                   bottomRight: Radius.circular(30),
@@ -449,7 +523,7 @@ class CategoryMealsScreen extends StatelessWidget {
                             onPressed: () => Navigator.of(context).pop(),
                           ),
                           Text(
-                            categoryTitle,
+                            widget.category.title,
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 24,
@@ -466,34 +540,81 @@ class CategoryMealsScreen extends StatelessWidget {
                   ),
                   SizedBox(height: 20),
                   Container(
+                    height: 50,
                     padding: EdgeInsets.symmetric(horizontal: 15),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(15),
                     ),
-                    child: TextField(
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        hintText:
-                            'Search ${categoryTitle.toLowerCase()} dishes...',
-                        icon: Icon(Icons.search, color: Colors.grey),
-                      ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.search, color: Colors.grey),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            decoration: InputDecoration(
+                              border: InputBorder.none,
+                              hintText:
+                                  'Search ${widget.category.title.toLowerCase()} dishes...',
+                              hintStyle: TextStyle(color: Colors.grey[400]),
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-            // Meals List
+            // Meals List with loading and error handling
             Expanded(
-              child: ListView.builder(
-                padding: EdgeInsets.all(20),
-                itemCount: meals.length,
-                itemBuilder: (ctx, index) {
-                  final meal = meals[index];
-                  return MealItem(
-                    title: meal['title'] as String,
-                    description: meal['description'] as String,
-                    imageUrl: meal['imageUrl'] as String,
+              child: Consumer<AppProvider>(
+                builder: (context, provider, child) {
+                  if (provider.isLoading) {
+                    return Center(child: CircularProgressIndicator());
+                  }
+
+                  if (provider.error.isNotEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error_outline,
+                              size: 48, color: Colors.red),
+                          SizedBox(height: 16),
+                          Text(provider.error),
+                          ElevatedButton(
+                            onPressed: () => provider.fetchMealsByCategory(
+                                widget.category.id.toString()),
+                            child: Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  final meals = provider
+                      .getMealsByCategory(widget.category.id.toString());
+
+                  if (meals.isEmpty) {
+                    return Center(
+                      child: Text('No meals found in this category'),
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: EdgeInsets.all(20),
+                    itemCount: meals.length,
+                    itemBuilder: (ctx, index) {
+                      final meal = meals[index];
+                      return MealItem(
+                        title: meal.title,
+                        description: meal.description,
+                        imageUrl: meal.imageUrl,
+                      );
+                    },
                   );
                 },
               ),
@@ -510,11 +631,17 @@ class MealItem extends StatelessWidget {
   final String title;
   final String description;
   final String imageUrl;
+  final double rating;
+  final String cookTime;
+  final String calories;
 
   MealItem({
     required this.title,
     required this.description,
     required this.imageUrl,
+    this.rating = 4.5,
+    this.cookTime = '30 min',
+    this.calories = '350 cal',
   });
 
   @override
@@ -547,18 +674,40 @@ class MealItem extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image Container
             Container(
               height: 200,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                image: DecorationImage(
-                  image: AssetImage(imageUrl),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl,
                   fit: BoxFit.cover,
+                  width: double.infinity,
+                  placeholder: (context, url) => Container(
+                    color: Colors.grey[200],
+                    child: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: Colors.grey[200],
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.restaurant, size: 50, color: Colors.grey),
+                        SizedBox(height: 8),
+                        Text(
+                          'Image not available',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
-            // Content Container
             Padding(
               padding: EdgeInsets.all(15),
               child: Column(
@@ -588,7 +737,7 @@ class MealItem extends StatelessWidget {
                             Icon(Icons.star, color: Colors.pink, size: 16),
                             SizedBox(width: 4),
                             Text(
-                              '4.5',
+                              rating.toString(),
                               style: TextStyle(
                                 color: Colors.pink,
                                 fontWeight: FontWeight.bold,
@@ -616,7 +765,7 @@ class MealItem extends StatelessWidget {
                           Icon(Icons.access_time, color: Colors.grey, size: 16),
                           SizedBox(width: 4),
                           Text(
-                            '30 min',
+                            cookTime,
                             style: TextStyle(color: Colors.grey),
                           ),
                           SizedBox(width: 15),
@@ -624,7 +773,7 @@ class MealItem extends StatelessWidget {
                               color: Colors.orange, size: 16),
                           SizedBox(width: 4),
                           Text(
-                            '350 cal',
+                            calories,
                             style: TextStyle(color: Colors.grey),
                           ),
                         ],
@@ -669,87 +818,108 @@ class MealDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.pink,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.favorite_border, color: Colors.white),
-            onPressed: () {},
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            height: 300,
-            decoration: BoxDecoration(
-              color: Colors.pink,
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(30),
-                bottomRight: Radius.circular(30),
-              ),
-            ),
-            child: Column(
-              children: [
-                Container(
-                  width: 200,
-                  height: 200,
-                  margin: EdgeInsets.only(top: 20),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 10,
-                        offset: Offset(0, 5),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: 300,
+                    decoration: BoxDecoration(
+                      color: Colors.pink,
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(30),
+                        bottomRight: Radius.circular(30),
                       ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: Image.asset(
-                      imageUrl,
-                      fit: BoxFit.cover,
+                    ),
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 20,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              IconButton(
+                                icon:
+                                    Icon(Icons.arrow_back, color: Colors.white),
+                                onPressed: () => Navigator.of(context).pop(),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.favorite_border,
+                                    color: Colors.white),
+                                onPressed: () {},
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          width: 200,
+                          height: 200,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black26,
+                                blurRadius: 10,
+                                offset: Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: CachedNetworkImage(
+                              imageUrl: imageUrl,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => Container(
+                                color: Colors.grey[200],
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ),
+                              errorWidget: (context, url, error) => Container(
+                                color: Colors.grey[200],
+                                child: Icon(Icons.error),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                SizedBox(height: 20),
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(
-                    5,
-                    (index) => Icon(
-                      Icons.star,
-                      color: Colors.amber,
-                      size: 20,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                ],
+              ),
+              Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 10),
                     Row(
+                      children: List.generate(
+                        5,
+                        (index) => Icon(
+                          Icons.star,
+                          color: Colors.amber,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Container(
                           padding:
@@ -762,185 +932,75 @@ class MealDetailScreen extends StatelessWidget {
                             children: [
                               Icon(Icons.remove, size: 20),
                               SizedBox(width: 10),
-                              Text('1',
-                                  style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold)),
+                              Text(
+                                '1',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                               SizedBox(width: 10),
                               Icon(Icons.add, size: 20),
                             ],
                           ),
                         ),
+                        Text(
+                          '\$52.90',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.pink,
+                          ),
+                        ),
                       ],
                     ),
+                    SizedBox(height: 20),
                     Text(
-                      '\$52.90',
+                      'Description',
                       style: TextStyle(
-                        fontSize: 24,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.pink,
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    Text(
+                      description,
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        height: 1.5,
+                      ),
+                    ),
+                    SizedBox(height: 30),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.pink,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(25),
+                          ),
+                        ),
+                        onPressed: () {},
+                        child: Text(
+                          'Add to Cart',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: 20),
-                Text(
-                  'Product Description',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 10),
-                Text(
-                  description,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    height: 1.5,
-                  ),
-                ),
-                SizedBox(height: 30),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.pink,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                    ),
-                    onPressed: () {},
-                    child: Text(
-                      'Add to Cart',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
-
-// Category Model
-class Category {
-  final String id;
-  final String title;
-  final Color color;
-  final String imageUrl;
-
-  const Category({
-    required this.id,
-    required this.title,
-    required this.color,
-    required this.imageUrl,
-  });
-}
-
-// Dummy Categories with Unsplash Images
-const DUMMY_CATEGORIES = [
-  Category(
-    id: 'c1',
-    title: 'Italian',
-    color: Color(0xFFFF6B6B),
-    imageUrl:
-        'https://images.unsplash.com/photo-1498579150354-977475b7ea0b?q=80&w=2070',
-  ),
-  Category(
-    id: 'c2',
-    title: 'Quick & Easy',
-    color: Color(0xFF4ECDC4),
-    imageUrl:
-        'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?q=80&w=2013',
-  ),
-  Category(
-    id: 'c3',
-    title: 'Hamburgers',
-    color: Color(0xFFFFBE0B),
-    imageUrl:
-        'https://images.unsplash.com/photo-1586816001966-79b736744398?q=80&w=2070',
-  ),
-  Category(
-    id: 'c4',
-    title: 'German',
-    color: Color(0xFF3D5A80),
-    imageUrl:
-        'https://images.unsplash.com/photo-1599921841143-819065a55cc6?q=80&w=2069',
-  ),
-  Category(
-    id: 'c5',
-    title: 'Light & Lovely',
-    color: Color(0xFF06D6A0),
-    imageUrl:
-        'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=2080',
-  ),
-];
-
-// Dummy Meals with Unsplash Images
-const DUMMY_MEALS = [
-  {
-    'categoryId': 'c1',
-    'title': 'Classic Margherita',
-    'description':
-        'Traditional Italian pizza with fresh basil, mozzarella, and tomatoes.',
-    'imageUrl':
-        'https://images.unsplash.com/photo-1604068549290-dea0e4a305ca?q=80&w=2069',
-    'rating': 4.8,
-    'cookTime': '25 min',
-    'calories': '290 cal'
-  },
-  {
-    'categoryId': 'c2',
-    'title': 'Avocado Toast',
-    'description':
-        'Freshly toasted bread topped with mashed avocado, eggs, and cherry tomatoes.',
-    'imageUrl':
-        'https://images.unsplash.com/photo-1603046891744-56e9c3c8f5b6?q=80&w=1974',
-    'rating': 4.5,
-    'cookTime': '10 min',
-    'calories': '220 cal'
-  },
-  {
-    'categoryId': 'c3',
-    'title': 'Gourmet Burger',
-    'description':
-        'Premium beef patty with aged cheddar, caramelized onions, and special sauce.',
-    'imageUrl':
-        'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=1899',
-    'rating': 4.9,
-    'cookTime': '30 min',
-    'calories': '450 cal'
-  },
-  {
-    'categoryId': 'c4',
-    'title': 'Schnitzel',
-    'description':
-        'Crispy breaded veal cutlet served with potato salad and lemon wedges.',
-    'imageUrl':
-        'https://images.unsplash.com/photo-1599921841143-819065a55cc6?q=80&w=2069',
-    'rating': 4.7,
-    'cookTime': '35 min',
-    'calories': '380 cal'
-  },
-  {
-    'categoryId': 'c5',
-    'title': 'Buddha Bowl',
-    'description':
-        'Nutritious bowl with quinoa, roasted vegetables, avocado, and tahini dressing.',
-    'imageUrl':
-        'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=2080',
-    'rating': 4.6,
-    'cookTime': '20 min',
-    'calories': '310 cal'
-  },
-];
 
 // Favorites Screen
 class FavoritesScreen extends StatelessWidget {
