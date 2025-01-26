@@ -1,6 +1,6 @@
 // This is a basic Flutter widget test.
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
+// To perform an interaction with a widget in the test, use the WidgetTester
 // utility in the flutter_test package. For example, you can send tap and scroll
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
@@ -43,80 +43,46 @@ class CartProvider with ChangeNotifier {
   }
 }
 
-class ProductItem extends StatelessWidget {
-  final String id;
-  final String title;
-  final double price;
+void main() {
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => CartProvider()),
+        ChangeNotifierProvider(create: (_) => OrdersProvider()),
+      ],
+      child: MyApp(),
+    ),
+  );
+}
 
-  ProductItem({
-    required this.id,
-    required this.title,
-    required this.price,
-  });
-
+class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final cart = Provider.of<CartProvider>(context, listen: false);
-
-    return Card(
-      margin: EdgeInsets.all(10),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            SizedBox(height: 5),
-            Text('\$${price.toString()}', style: TextStyle(fontSize: 16)),
-            SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                ElevatedButton(
-                  onPressed: () {
-                    cart.addItem(id, title, price);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Added to cart!'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                  },
-                  child: Text('Add to Cart'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    cart.addItem(id, title, price);
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (ctx) => OrderDetailsScreen()),
-                    );
-                  },
-                  child: Text('Order Now'),
-                ),
-              ],
+    return MaterialApp(
+      home: Scaffold(
+        appBar: AppBar(
+          title: Text('Shop'),
+          actions: [
+            IconButton(
+              icon: Icon(Icons.shopping_cart),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (ctx) => CartScreen()),
+                );
+              },
+            ),
+            IconButton(
+              icon: Icon(Icons.list),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (ctx) => OrdersScreen()),
+                );
+              },
             ),
           ],
         ),
+        body: ProductList(),
       ),
     );
   }
-}
-
-void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
-  });
 }
