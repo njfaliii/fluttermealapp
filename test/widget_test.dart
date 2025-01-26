@@ -7,8 +7,100 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
 import 'package:mealapp/main.dart';
+
+class CartProvider with ChangeNotifier {
+  Map<String, CartItem> _items = {};
+
+  Map<String, CartItem> get items => _items;
+
+  void addItem(String productId, String title, double price) {
+    if (_items.containsKey(productId)) {
+      // Update quantity
+      _items.update(
+        productId,
+        (existingItem) => CartItem(
+          id: existingItem.id,
+          title: existingItem.title,
+          price: existingItem.price,
+          quantity: existingItem.quantity + 1,
+        ),
+      );
+    } else {
+      // Add new item
+      _items.putIfAbsent(
+        productId,
+        () => CartItem(
+          id: DateTime.now().toString(),
+          title: title,
+          price: price,
+        ),
+      );
+    }
+    notifyListeners();
+  }
+}
+
+class ProductItem extends StatelessWidget {
+  final String id;
+  final String title;
+  final double price;
+
+  ProductItem({
+    required this.id,
+    required this.title,
+    required this.price,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cart = Provider.of<CartProvider>(context, listen: false);
+
+    return Card(
+      margin: EdgeInsets.all(10),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 5),
+            Text('\$${price.toString()}', style: TextStyle(fontSize: 16)),
+            SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                ElevatedButton(
+                  onPressed: () {
+                    cart.addItem(id, title, price);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Added to cart!'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  child: Text('Add to Cart'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    cart.addItem(id, title, price);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (ctx) => OrderDetailsScreen()),
+                    );
+                  },
+                  child: Text('Order Now'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 void main() {
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {
